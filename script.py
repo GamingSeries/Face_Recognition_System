@@ -1,67 +1,71 @@
 import os
-from PIL import Image
 import numpy as np
 from sklearn.model_selection import train_test_split
-from keras.models import Sequential
-from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras import utils
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Flatten
+from tensorflow.keras.layers import Conv2D, MaxPooling2D
+from tensorflow.keras.losses import categorical_crossentropy
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.regularizers import l2
+from PIL import Image
 
-# define the directory where you extracted the LFW dataset
-dataset_dir = 'lfw-deepfunneled'
+path_to_dataset = 'deepfunneled'
+labels = []
+faces = []
 
-# we'll store the face images in X and the labels in y
-X = []
-y = []
+for folder in os.listdir(path_to_dataset):
+    for filename in os.listdir(path_to_dataset + '/' + folder):
+        image_path = path_to_dataset + '/' + folder + '/' + filename
+        image = Image.open(image_path).convert("L")
+        image = np.array(image).astype('float32')
+        image /= 255
+        image = image.reshape(250, 250, 1)
+        faces.append(image)
+        labels.append(folder)
 
-# iterate through each sub-directory in the dataset directory
-for class_dir in os.listdir(dataset_dir):
-    if class_dir == '.DS_Store':
-        continue
+le = LabelEncoder()
+labels = le.fit_transform(labels)
 
-    # iterate through each image in the sub-directory
-    for image_filename in os.listdir(os.path.join(dataset_dir, class_dir)):
-        # open the image file
-        img = Image.open(os.path.join(dataset_dir, class_dir, image_filename))
+faces = np.array(faces)
+labels = np.array(labels)
 
-        # convert the image to grayscale, resize it to a common size, and convert to numpy array
-        img = img.convert('L').resize((62, 47))
-        img_data = np.array(img)
+X_train, X_test, y_train, y_test = train_test_split(faces, labels, test_size=0.2, random_state=42)
 
-        # add the image data and label to our datasets
-        X.append(img_data)
-        y.append(class_dir)
+num_classes = len(set(labels))
+y_train = utils.to_categorical(y_train, num_classes)
+y_test = utils.to_categorical(y_test, num_classes)
 
-# convert X and y to numpy arrays
-X = np.array(X)
-y = np.array(y)
-
-# Split the data into a training set and a test set
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Create a CNN
 model = Sequential()
-model.add(Conv2D(32, (3, 3), activation='relu', input_shape=(62, 47, 1)))
-model.add(MaxPooling2D((2, 2)))
-model.add(Conv2D(64, (3, 3), activation='relu'))
-model.add(MaxPooling2D((2, 2)))
-model.add(Conv2D(64, (3, 3), activation='relu'))
-model.add(Flatten())
-model.add(Dense(64, activation='relu'))
-model.add(Dense(len(np.unique(y))))
 
-# Compile the model
-model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
+model.add(Conv2D(64, kernel_size=(3, 3), activation='relu', input_shape=(250, 250, 1), data_format='channels_last', kernel_regularizer=l2(0.01)))
+model.add(Conv2D(64, kernel_size=(3, 3), activation='relu', padding='same'))
+model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+model.add(Dropout(0.5))
+
+model.add(Conv2D(128, kernel_size=(3, 3), activation='relu', padding='same'))
+model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+model.add(Dropout(0.5))
+
+model.add(Conv2D(256, kernel_size=(3, 3), activation='relu', padding='same'))
+model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+model.add(Dropout(0.5))
+
+model.add(Flatten())
+model.add(Dense(1024, activation='relu'))
+model.add(Dropout(0.5))
+model.add(Dense(num_classes, activation='softmax'))
+
+model.compile(loss=categorical_crossentropy,
+              optimizer=Adam(),
               metrics=['accuracy'])
 
-# Reshape the data to fit the model
-X_train = X_train.reshape((X_train.shape[0], 62, 47, 1))
-X_test = X_test.reshape((X_test.shape[0], 62, 47, 1))
-
-# Train the model
-model.fit(X_train, y_train, epochs=10, batch_size=64,
+model.fit(X_train, y_train,
+          batch_size=64,
+          epochs=10,
+          verbose=1,
           validation_data=(X_test, y_test))
 
-# Evaluate the model
-test_loss, test_acc = model.evaluate(X_test, y_test, verbose=2)
-
-print('\nTest accuracy:', test_acc)
+accuracy = model.evaluate(X_test, y_test)[1]
+print("Test Accuracy: {:.4f}".format(accuracy))
