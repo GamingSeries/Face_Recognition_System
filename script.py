@@ -69,3 +69,5 @@ model.fit(X_train, y_train,
 
 accuracy = model.evaluate(X_test, y_test)[1]
 print("Test Accuracy: {:.4f}".format(accuracy))
+
+model.save('face_recognition_model.h5')
